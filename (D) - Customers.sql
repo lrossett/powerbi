@@ -1,0 +1,25 @@
+SELECT 
+CONCAT(UPPER([Domain]),'_',UPPER([Customer])) AS [Customer_Key],
+CONCAT(UPPER([Customer]),'-',UPPER([Sort Name])) AS [Customer Code & Name],
+UPPER([Customer])										AS [Customer Code],
+UPPER([Sort Name])										AS [Customer Name],
+UPPER([Currency])										AS [Customer Currency],
+UPPER([Ship-To])										AS [Ship-To],
+UPPER([Type])											AS [Type],
+[Terms]													AS [Terms],
+CASE WHEN [Statement] = 1 THEN 'YES' ELSE 'NO' END		AS [Statement],
+CAST([Balance]	AS DECIMAL (18,6))						AS [Current Balance],
+[Avg Days Paid Late]									AS [Average Days Paid Late],
+CASE WHEN [Credit Hold]	= 1 THEN 'YES' ELSE 'NO' END	AS [Credit Hold],
+CAST([Credit Limit] AS DECIMAL (18,6))					AS [Credit Limit],
+CAST([High Credit] AS DECIMAL (18,6))					AS [High Credit],
+CAST([High Date] as DATE)								AS [High Date],
+CAST([Last Sale] as DATE)								AS [Last Sale Date],
+cast([Last Payment] as DATE)							AS [Last Payment Date],
+CAST([Last Credit Update] as DATE)						AS [Last Credit Update],
+CAST([Total Invoices] AS INTEGER)						AS [Total Invoices],		
+[Domain]												AS [Domain],
+[AR Acct]												AS [Account],
+[AR Sub-Acct]											AS [Sub-Account]
+
+FROM stg_cm_mstr where [Domain] IN ('30', '35', '40','50') 
