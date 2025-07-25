@@ -5,25 +5,28 @@ WITH cte_ck_mstr AS (
     FROM ck_mstr cm
     GROUP BY cm.[Reference]
 )
+
+-- What it does: Pulls the latest (MAX) clear date for each payment reference.
+-- Why: Used later to determine the final payment date for aging classification. This helps when a check might have multiple clearances.
 SELECT DISTINCT
-    CONCAT(i.[Domain], '_', UPPER(i.[Supplier])) AS [Supplier_Key],
+    CONCAT(i.[Domain], '_', UPPER(i.[Supplier])) AS [Supplier_Key], -- Composite key to uniquely identify a supplier across domains.
     UPPER(i.[Supplier]) AS [Supplier Code],
     s.[Currency] AS [Supplier Currency],
     s.[Cr Terms] AS [Credit Terms],
     UPPER(s.[Sort Name]) AS [Supplier],
     i.[Reference],
-    CONCAT(i.[Domain], '_', i.[Reference]) AS [Reference_key],
-    CAST(i.[Date] AS DATE) AS [Invoice Date],
-    CAST(v.[Due Date] AS DATE) AS [Due Date],
-    CAST(v.[Last Paid] AS DATE) AS [Payment Date],
-    DATEDIFF(DAY, CAST(i.[Date] AS DATE), CAST(v.[Due Date] AS DATE)) AS [Days to Pay],
+    CONCAT(i.[Domain], '_', i.[Reference]) AS [Reference_key], -- Unique identifier for each invoice.
+    CAST(i.[Date] AS DATE) AS [Invoice Date], -- Standardizing date formats and ensuring clean joins for date-based calculations.
+    CAST(v.[Due Date] AS DATE) AS [Due Date], -- Standardizing date formats and ensuring clean joins for date-based calculations.
+    CAST(v.[Last Paid] AS DATE) AS [Payment Date], -- Standardizing date formats and ensuring clean joins for date-based calculations.
+    DATEDIFF(DAY, CAST(i.[Date] AS DATE), CAST(v.[Due Date] AS DATE)) AS [Days to Pay], -- Used to evaluate payment behavior, vendor performance, and overdue risks.
     
     CASE 
         WHEN [Open] = 0 THEN DATEDIFF(DAY, CAST(v.[Due Date] AS DATE), CAST(v.[Last Paid] AS DATE))
         ELSE DATEDIFF(DAY, CAST(v.[Due Date] AS DATE), GETDATE())
-    END AS [Days_Past_Due],
+    END AS [Days_Past_Due], -- Used to evaluate payment behavior, vendor performance, and overdue risks.
 
-    DATEDIFF(DAY, CAST(i.[Date] AS DATE), CAST(v.[Last Paid] AS DATE)) AS [Lead_Time_Days],
+    DATEDIFF(DAY, CAST(i.[Date] AS DATE), CAST(v.[Last Paid] AS DATE)) AS [Lead_Time_Days], -- Used to evaluate payment behavior, vendor performance, and overdue risks.
 
     CASE 
         WHEN i.[Open] = 1 THEN 
@@ -49,6 +52,10 @@ SELECT DISTINCT
                 ELSE 'Overdue 90+'
             END
     END AS [Aging_Bucket],
+-- Logic:
+-- If open, aging is counted from due date to today.
+-- If closed, aging is based on due date to Clear Date / Last Paid.
+-- This separation allows for precise reporting and visualization in Power BI, enabling dashboards to group overdue invoices correctly whether paid or not.
     CASE 
     WHEN i.[Open] = 1 THEN 
         CASE
@@ -79,18 +86,18 @@ END AS [Aging_Index],
         WHEN [open] = 0 THEN 'Overdue'
         WHEN [open] = 1 AND DATEDIFF(DAY, v.[Due Date], GETDATE()) <= 0 THEN 'Before Due'
         ELSE 'Overdue'
-    END AS [Due Status],
+    END AS [Due Status], -- Classifies whether the invoice was paid early, on time, or late.
 
     CASE 
-        WHEN UPPER(i.Currency) = 'CAD' THEN CAST(i.[Amount] AS DECIMAL(18,6)) / 1.25
-        WHEN UPPER(i.Currency) = 'EUR' THEN CAST(i.[Amount] AS DECIMAL(18,6)) / 0.833
+        WHEN UPPER(i.Currency) = 'CAD' THEN CAST(i.[Amount] AS DECIMAL(18,6)) / 1.25 -- Simplified conversion for normalization to USD or local currency.
+        WHEN UPPER(i.Currency) = 'EUR' THEN CAST(i.[Amount] AS DECIMAL(18,6)) / 0.833 -- Note: Ideally, this should use dynamic or historical FX rates.
         ELSE CAST(i.[Amount] AS DECIMAL(18,6))
     END AS [Total Amount],
 
     CASE 
         WHEN CAST(i.[Amount] AS DECIMAL(18,6)) < 0 THEN 'Credit Memo'
         ELSE 'Purchase'
-    END AS [Invoice Type],
+    END AS [Invoice Type], -- Classifies if it’s a standard invoice or a credit memo.
 
     UPPER(i.Currency) AS 'Currency',
     i.[Open] AS [Open],
@@ -102,7 +109,7 @@ END AS [Aging_Index],
         WHERE 
             c.Domain = i.Domain 
             AND c.Voucher = i.Reference
-    ) AS [Total Paid]
+    ) AS [Total Paid] -- Dynamically calculates the total paid for the invoice using the ckd_det (check details) table.
 
 FROM ap_mstr i
 LEFT JOIN vd_mstr s ON i.[Domain] = s.[Domain] AND i.[Supplier] = s.[Supplier]
