@@ -5,36 +5,30 @@ WITH cte_ck_mstr AS (
     FROM ck_mstr cm
     GROUP BY cm.[Reference]
 )
-
--- What it does: Pulls the latest (MAX) clear date for each payment reference.
--- Why: Used later to determine the final payment date for aging classification. This helps when a check might have multiple clearances.
 SELECT DISTINCT
-    CONCAT(i.[Domain], '_', UPPER(i.[Supplier])) AS [Supplier_Key], -- Composite key to uniquely identify a supplier across domains.
+    CONCAT(i.[Domain], '_', UPPER(i.[Supplier])) AS [Supplier_Key],
     UPPER(i.[Supplier]) AS [Supplier Code],
     s.[Currency] AS [Supplier Currency],
     s.[Cr Terms] AS [Credit Terms],
     UPPER(s.[Sort Name]) AS [Supplier],
     i.[Reference],
-    CONCAT(i.[Domain], '_', i.[Reference]) AS [Reference_key], -- Unique identifier for each invoice.
-    CAST(i.[Date] AS DATE) AS [Invoice Date], -- Standardizing date formats and ensuring clean joins for date-based calculations.
-    CAST(v.[Due Date] AS DATE) AS [Due Date], -- Standardizing date formats and ensuring clean joins for date-based calculations.
-    CAST(v.[Last Paid] AS DATE) AS [Payment Date], -- Standardizing date formats and ensuring clean joins for date-based calculations.
-    DATEDIFF(DAY, CAST(i.[Date] AS DATE), CAST(v.[Due Date] AS DATE)) AS [Days to Pay], -- Used to evaluate payment behavior, vendor performance, and overdue risks.
+    CONCAT(i.[Domain], '_', i.[Reference]) AS [Reference_key],
+    CAST(i.[Date] AS DATE) AS [Invoice Date],
+    CAST(v.[Due Date] AS DATE) AS [Due Date],
+    CAST(v.[Last Paid] AS DATE) AS [Payment Date],
+    DATEDIFF(DAY, CAST(i.[Date] AS DATE), CAST(v.[Due Date] AS DATE)) AS [Days to Pay],
     
     CASE 
         WHEN [Open] = 0 THEN DATEDIFF(DAY, CAST(v.[Due Date] AS DATE), CAST(v.[Last Paid] AS DATE))
         ELSE DATEDIFF(DAY, CAST(v.[Due Date] AS DATE), GETDATE())
-    END AS [Days_Past_Due], -- Used to evaluate payment behavior, vendor performance, and overdue risks.
+    END AS [Days_Past_Due],
 
-    DATEDIFF(DAY, CAST(i.[Date] AS DATE), CAST(v.[Last Paid] AS DATE)) AS [Lead_Time_Days], -- Used to evaluate payment behavior, vendor performance, and overdue risks.
+    DATEDIFF(DAY, CAST(i.[Date] AS DATE), CAST(v.[Last Paid] AS DATE)) AS [Lead_Time_Days],
 
     CASE 
         WHEN i.[Open] = 1 THEN 
             CASE
-                WHEN DATEDIFF(DAY, v.[Due Date], GETDATE()) < -30 THEN 'Due + 30 days'
-                WHEN DATEDIFF(DAY, v.[Due Date], GETDATE()) < -14 THEN 'Due in 15 - 30 days'
-                WHEN DATEDIFF(DAY, v.[Due Date], GETDATE()) < -7  THEN 'Due in 8 - 14 days'
-                WHEN DATEDIFF(DAY, v.[Due Date], GETDATE()) <= 0 THEN  'Due in 7 days'
+                WHEN DATEDIFF(DAY, v.[Due Date], GETDATE()) <= 0 THEN  'Current'
                 WHEN DATEDIFF(DAY, v.[Due Date], GETDATE()) <= 30 THEN 'Overdue 0-30'
                 WHEN DATEDIFF(DAY, v.[Due Date], GETDATE()) <= 60 THEN 'Overdue 31-60'
                 WHEN DATEDIFF(DAY, v.[Due Date], GETDATE()) <= 90 THEN 'Overdue 61-90'
@@ -42,62 +36,49 @@ SELECT DISTINCT
             END
         ELSE 
             CASE
-                WHEN DATEDIFF(DAY, v.[Due Date], IIF(cm.[Clear Date] is null, v.[Last Paid], cm.[Clear Date])) < -30 THEN 'Due + 30 days'
-                WHEN DATEDIFF(DAY, v.[Due Date], IIF(cm.[Clear Date] is null, v.[Last Paid], cm.[Clear Date])) < -14 THEN 'Due in 15 - 30 days'
-                WHEN DATEDIFF(DAY, v.[Due Date], IIF(cm.[Clear Date] is null, v.[Last Paid], cm.[Clear Date])) < -7  THEN 'Due in 8 - 14 days'
-                WHEN DATEDIFF(DAY, v.[Due Date], IIF(cm.[Clear Date] is null, v.[Last Paid], cm.[Clear Date])) <= 0 THEN  'Due in 7 days'
+                WHEN DATEDIFF(DAY, v.[Due Date], IIF(cm.[Clear Date] is null, v.[Last Paid], cm.[Clear Date])) <= 0 THEN  'Current'
                 WHEN DATEDIFF(DAY, v.[Due Date], IIF(cm.[Clear Date] is null, v.[Last Paid], cm.[Clear Date])) <= 30  THEN 'Overdue 0-30'
                 WHEN DATEDIFF(DAY, v.[Due Date], IIF(cm.[Clear Date] is null, v.[Last Paid], cm.[Clear Date])) <= 60  THEN 'Overdue 31-60'
                 WHEN DATEDIFF(DAY, v.[Due Date], IIF(cm.[Clear Date] is null, v.[Last Paid], cm.[Clear Date])) <= 90  THEN 'Overdue  61-90'
                 ELSE 'Overdue 90+'
             END
     END AS [Aging_Bucket],
--- Logic:
--- If open, aging is counted from due date to today.
--- If closed, aging is based on due date to Clear Date / Last Paid.
--- This separation allows for precise reporting and visualization in Power BI, enabling dashboards to group overdue invoices correctly whether paid or not.
     CASE 
     WHEN i.[Open] = 1 THEN 
         CASE
-            WHEN DATEDIFF(DAY, CAST(v.[Due Date] AS DATE), GETDATE()) < -30 THEN 1
-            WHEN DATEDIFF(DAY, CAST(v.[Due Date] AS DATE), GETDATE()) < -14 THEN 2
-            WHEN DATEDIFF(DAY, CAST(v.[Due Date] AS DATE), GETDATE()) < -7  THEN 3
-            WHEN DATEDIFF(DAY, CAST(v.[Due Date] AS DATE), GETDATE()) <= 0  THEN 4
-            WHEN DATEDIFF(DAY, CAST(v.[Due Date] AS DATE), GETDATE()) <= 30 THEN 5
-            WHEN DATEDIFF(DAY, CAST(v.[Due Date] AS DATE), GETDATE()) <= 60 THEN 6
-            WHEN DATEDIFF(DAY, CAST(v.[Due Date] AS DATE), GETDATE()) <= 90 THEN 7
-            ELSE 10
+            WHEN DATEDIFF(DAY, CAST(v.[Due Date] AS DATE), GETDATE()) <= 0  THEN 1
+            WHEN DATEDIFF(DAY, CAST(v.[Due Date] AS DATE), GETDATE()) <= 30 THEN 2
+            WHEN DATEDIFF(DAY, CAST(v.[Due Date] AS DATE), GETDATE()) <= 60 THEN 3
+            WHEN DATEDIFF(DAY, CAST(v.[Due Date] AS DATE), GETDATE()) <= 90 THEN 4
+            ELSE 5
         END
     ELSE 
         CASE
-            WHEN DATEDIFF(DAY, v.[Due Date], IIF(cm.[Clear Date] is null, v.[Last Paid], cm.[Clear Date])) < -30 THEN 1
-            WHEN DATEDIFF(DAY, v.[Due Date], IIF(cm.[Clear Date] is null, v.[Last Paid], cm.[Clear Date])) < -14 THEN 2
-            WHEN DATEDIFF(DAY, v.[Due Date], IIF(cm.[Clear Date] is null, v.[Last Paid], cm.[Clear Date])) < -7  THEN 3
-            WHEN DATEDIFF(DAY, v.[Due Date], IIF(cm.[Clear Date] is null, v.[Last Paid], cm.[Clear Date])) <= 0  THEN 4
-            WHEN DATEDIFF(DAY, v.[Due Date], IIF(cm.[Clear Date] is null, v.[Last Paid], cm.[Clear Date])) <= 30 THEN 5
-            WHEN DATEDIFF(DAY, v.[Due Date], IIF(cm.[Clear Date] is null, v.[Last Paid], cm.[Clear Date])) <= 60 THEN 6
-            WHEN DATEDIFF(DAY, v.[Due Date], IIF(cm.[Clear Date] is null, v.[Last Paid], cm.[Clear Date])) <= 90 THEN 7
-            ELSE 10
+            WHEN DATEDIFF(DAY, v.[Due Date], IIF(cm.[Clear Date] is null, v.[Last Paid], cm.[Clear Date])) <= 0  THEN 1
+            WHEN DATEDIFF(DAY, v.[Due Date], IIF(cm.[Clear Date] is null, v.[Last Paid], cm.[Clear Date])) <= 30 THEN 2
+            WHEN DATEDIFF(DAY, v.[Due Date], IIF(cm.[Clear Date] is null, v.[Last Paid], cm.[Clear Date])) <= 60 THEN 3
+            WHEN DATEDIFF(DAY, v.[Due Date], IIF(cm.[Clear Date] is null, v.[Last Paid], cm.[Clear Date])) <= 90 THEN 4
+            ELSE 5
         END
 END AS [Aging_Index],
 
     CASE 
-        WHEN [open] = 0 AND DATEDIFF(DAY, v.[Due Date], IIF(cm.[Clear Date] is null, v.[Last Paid], cm.[Clear Date])) <= 0 THEN 'Before Due'
+        WHEN [open] = 0 AND DATEDIFF(DAY, v.[Due Date], IIF(cm.[Clear Date] is null, v.[Last Paid], cm.[Clear Date])) <= 0 THEN 'Current'
         WHEN [open] = 0 THEN 'Overdue'
-        WHEN [open] = 1 AND DATEDIFF(DAY, v.[Due Date], GETDATE()) <= 0 THEN 'Before Due'
+        WHEN [open] = 1 AND DATEDIFF(DAY, v.[Due Date], GETDATE()) <= 0 THEN 'Current'
         ELSE 'Overdue'
-    END AS [Due Status], -- Classifies whether the invoice was paid early, on time, or late.
+    END AS [Due Status],
 
     CASE 
-        WHEN UPPER(i.Currency) = 'CAD' THEN CAST(i.[Amount] AS DECIMAL(18,6)) / 1.25 -- Simplified conversion for normalization to USD or local currency.
-        WHEN UPPER(i.Currency) = 'EUR' THEN CAST(i.[Amount] AS DECIMAL(18,6)) / 0.833 -- Note: Ideally, this should use dynamic or historical FX rates.
+        WHEN UPPER(i.Currency) = 'CAD' THEN CAST(i.[Amount] AS DECIMAL(18,6)) / 1.25
+        WHEN UPPER(i.Currency) = 'EUR' THEN CAST(i.[Amount] AS DECIMAL(18,6)) / 0.833
         ELSE CAST(i.[Amount] AS DECIMAL(18,6))
     END AS [Total Amount],
 
     CASE 
         WHEN CAST(i.[Amount] AS DECIMAL(18,6)) < 0 THEN 'Credit Memo'
         ELSE 'Purchase'
-    END AS [Invoice Type], -- Classifies if it’s a standard invoice or a credit memo.
+    END AS [Invoice Type],
 
     UPPER(i.Currency) AS 'Currency',
     i.[Open] AS [Open],
@@ -109,7 +90,8 @@ END AS [Aging_Index],
         WHERE 
             c.Domain = i.Domain 
             AND c.Voucher = i.Reference
-    ) AS [Total Paid] -- Dynamically calculates the total paid for the invoice using the ckd_det (check details) table.
+ -- and i.[Open] <> 1
+    ) AS [Total Paid]
 
 FROM ap_mstr i
 LEFT JOIN vd_mstr s ON i.[Domain] = s.[Domain] AND i.[Supplier] = s.[Supplier]
